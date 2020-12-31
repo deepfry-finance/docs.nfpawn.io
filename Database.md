@@ -1,14 +1,17 @@
-## Notes
+# Database
 
-* Store Ethereum addresses like "0x239843749" using `VARCHAR(22)`
-* Store UINT256 values like "23498734897" using `VARCHAR(71)`
-* Store hexadecimal 256-bit values (like transaction hashes) using `VARCHAR(64)`
-* Store Unix times as BIGINT // see https://stackoverflow.com/a/59460086/300224 for why to use BIGINT here, if using MySQL
+Here is everything we need to keep in our databases.
+
+## Data type notes
+
+* Store Ethereum addresses as text like `"0x239843749"`
+* Store `uint256` values as text like `"23498734897"`
+* Store `bytes32` values as text like `"0x47120498740923"`
+* Store Unix times as numbers like `523509837450957` see https://stackoverflow.com/a/59460086/300224 for why not to use database time formats
 * All columns are NOT NULL unless specified otherwise
 
 ```mermaid
 erDiagram
-    OFFER ||--o| COLLATERAL : secures
     OFFER |o--|| NFT : values
     NFTCONTRACT ||--}o NFT : tabulates
     VALUECONTRACT ||--}o OFFER : pays
@@ -17,156 +20,112 @@ erDiagram
 
 ## :minidisc: offers
 
+This is every sale-buyback offer that is active or recently closed.
+
 These are every offer that can be executed on the network.
 
-These are inserted using `POST api.nfpawn.io/offer-list`. A cron job removes offers that are expired, if no dependent buyback offers are active.
+These are inserted using `POST api.nfpawn.io/offer-list`. A cron job removes offers that are expired after 30 days, if no dependent buyback offers are active.
 
-| Name             | Type                       | Notes                                                        |
-| ---------------- | -------------------------- | ------------------------------------------------------------ |
-| id               | UINT PRIMARY AUTOINCREMENT | Because INNODB requires a PRIMARY AUTOINCREMENT integer field, or else INSERT will be slow |
-| offeror          | VARCHAR(22)                | The Ethereum address of the offeror, like "0x239437493749837..." |
-| expiration       | BIGINT                     | The Unix timestamp that this expiration expires // see https://stackoverflow.com/a/59460086/300224 for why to use BIGINT here, if using MySQL |
-| term             | BIGINT                     | The number of seconds after a sale that the return offer is valid |
-| nftRowId         | UINT                       | FOREIGN KEY: `nfts.id`                                       |
-| saleContractId   | UINT                       | FOREIGN KEY: `valueContracts.id`                             |
-| saleAmount       | VARCHAR(71)                | The offered sale amount stored in base-10 (accepts up to 2^256-1) |
-| returnContractId | UINT                       | FOREIGN KEY: `valueContracts.id`                             |
-| returnAmount     | VARCHAR(71)                | The offered return amount stored in base-10 (accepts up to 2^256-1) |
-| signatureR       |                            |                                                              |
-| signatureS       |                            |                                                              |
-| signatureV       |                            |                                                              |
-| merkleProof      | BLOB                       | See below...                                                 |
+Offer format:
 
-| Key  | Notes |
-| ---- | ----- |
-|      |       |
-|      |       |
-|      |       |
+```json
+{
+  "timeOffered": 298473937404,
+  "timeSold": null,
+  "timeCollateralAtRisk": null,
+  "timeFreeForAll": null,
+  "timeBuybackExecuted": null,
+  "timeBuybackRevoked": null,
+  "liquidator": null,
+  "buybackExecutor": null,
 
-The merkleProof is a concatenated array of 256-bit values such that must be set such that `offerer` equals:
-
-* ECRECOVER(...)
-
-  * signatureR
-  * signatureS
-  * signatureV
-  * HASH(...)
-    * merkleProof[7]
-    * HASH(...)
-      * merkleProof[6]
-      * HASH(...)
-        * ...
-          * HASH(...)
-            * expiration
-            * term
-            * nftContract
-            * nftId
-            * saleContract
-            * saleAmount
-            * returnContract
-            * returnAmount
-
-  ... where the order of the HASH arguments are alphabetical.
-
-## :minidisc: collaterals
-
-After a sale has completed then a buyback offer is active. Rows are added to this table by a cron job that listens for sale events on the smart contract.
-
-| Name              | Type                       | Notes                                                        |
-| ----------------- | -------------------------- | ------------------------------------------------------------ |
-| id                | UINT PRIMARY AUTOINCREMENT | Because INNODB requires a PRIMARY AUTOINCREMENT integer field, or else INSERT will be slow |
-| offerId           | BIGINT                     | FOREIGN KEY: `offers.id`                                     |
-| transactionHash   | VARCHAR(64)                | The transaction hash on the network                          |
-| buybackExpiration | BIGINT                     | The Unix timestamp that the buyback offer expires            |
+  "offeror": "0x92382379487offeror293873947",
+  "collateral": {
+    "nftContract": LINK_TO_NFTCONTRACT,
+    "nftId": "2394837497kittiid234",
+    "nftImageUri": "https://storage.googleapis.com/ck-kitty-image/0x06012c8cf97bead5deae237070f9587f8e7a266d/198881.svg",
+    "nftOwner": "0x2349374934holder23948723497"
+  },
+  "sale-offer": {
+    "saleExpiration": 234973498734TIME24397349,
+    "saleContract": LINK_TO_VALUECONTRACT
+    "saleAmount": "24983749374398473493740000000000000000",
+  },
+  "buyback-offer": {
+    "termUntilCollateralAtRisk": 23987394,
+    "buybackContract": LINK_TO_VALUECONTRACT
+    "buybackAmount": "24983749374398473493740000000000000000",
+  },
+  "proof": [
+    "0x24872104987123049732409327849234",
+    "0x23498734093742039487230498237402",
+    "0xoeausnthousntoehuesnotuheusntheu"
+  ],
+  "signature": "0x419827403294341341341htd4nthteod"
+}
+```
 
 ## :minidisc:  nftContracts
 
-| Name                | Type                                     | Notes                                                        |
-| ------------------- | ---------------------------------------- | ------------------------------------------------------------ |
-| id                  | UINT PRIMARY AUTOINCREMENT               | Because INNODB requires a PRIMARY AUTOINCREMENT integer field, or else INSERT will be slow |
-| account             | VARCHAR(22)                              | The Ethereum address of the contract, like "0x239437493749837..." |
-| pretty              | VARCHAR(100) IS NULL                     | Like "CryptoKitties"                                         |
-| tokenPrettyTemplate | VARCHAR(100) IS NULL                     | A way to name each token prettily, like "Kitty: %d" or "Su Square #%5d". This templating language might get get more complicated as needs arise. Or possibly, exclude this column and calculate only on the api server as selected. |
-| status              | ENUM("Supported","Blocklisted")  IS NULL |                                                              |
-| syncedUpTo          | BIGINT                                   | Highest block number which is fully processed here           |
+Contracts are added as offers come in. Also, we may manually edit these contracts to mark as `$.status = "supported"` or to set the template.
 
-| Key              | Notes |
-| ---------------- | ----- |
-| UNIQUE(contract) |       |
-|                  |       |
-|                  |       |
+Here is what an nftContract looks like:
+
+```json
+{
+  "account": "0x23948794837",
+  "pretty": "CryptoKitties",
+  "tokenPrettyTemplate": "CryptoKitty ${nftIdDecimal}",
+  "status": "supported",
+  "syncedUpToBlockHeight": 340982375
+}
+```
+
+### Constraints
+
+* `$.account` must be unique
 
 This table is manually updated for contracts we would like to support. Also, rows could be inserted if an offer is created and that contract is not in here yet.
 
 ## :minidisc:  valueContracts
 
-| Name                    | Type                                     | Notes                                                        |
-| ----------------------- | ---------------------------------------- | ------------------------------------------------------------ |
-| id                      | UINT PRIMARY AUTOINCREMENT               | Because INNODB requires a PRIMARY AUTOINCREMENT integer field, or else INSERT will be slow |
-| account                 | VARCHAR(22)                              | The Ethereum address of the contract, like "0x239437493749837..." |
-| decimals                | UINT8                                    | Number of decimals places (ERC20.decimals())                 |
-| pretty                  | VARCHAR(100)                             | Like "WETH"                                                  |
-| status                  | ENUM("Supported","Blocklisted")  IS NULL |                                                              |
-| approximatePrice        | DECIMAL(71,18)                           | The bid/ask median for trading this value contract to USD (get this from Compound) |
-| approximatePriceUpdated | BIGINT                                   | Unix time (in real life) when approximatePrice was updated   |
+Contracts are added as offers come in. Also, we may manually edit these contracts to mark as `$.status = "supported"` or to set the template.
 
-| Key  | Notes |
-| ---- | ----- |
-|      |       |
-|      |       |
-|      |       |
+Here is what a valueContract looks like:
 
-This table is manually updated for contracts we would like to support.
+```json
+{
+  "account": "0x23498374987",
+  "decimals": 18,
+  "pretty": "WETH",
+  "status": "supported",
+  "approximatePriceInUSD": "0.000014",
+  "approximatePriceInUSDLastUpdated: 23487930894
+}
+```
+
+### Constraints
+
+* `$.account` must be unique
 
 ## :minidisc:  nfts
 
-This is every NFT for every contract that we care about.
+Here is how an NFT looks:
 
-| Name          | Type                       | Notes                                                        |
-| ------------- | -------------------------- | ------------------------------------------------------------ |
-| id            | UINT PRIMARY AUTOINCREMENT | Because INNODB requires a PRIMARY AUTOINCREMENT integer field, or else INSERT will be slow |
-| nftContractId | UINT                       | FOREIGN KEY: `nftContracts.id`                               |
-| nftId         | VARCHAR(71)                | The NFT token ID stored in base-10 (accepts up to 2^256-1)   |
-| pretty        | VARCHAR(100) IS NULL       | Text like "Kitty #239487". Null if we do not know how to pretify names for this contract. Or possibly, exclude this column and calculate only on the api server as selected. |
-| imageUri      | VARCHAR(200) IS NULL       | A URL for the image for this NFT                             |
-| owner         | VARCHAR(22)                | The Ethereum address of the owner, like "0x239437493749837..." |
-| updated       | TIMESTAMP                  | Automatically set by database when rows are inserted or reaffirmed |
-
-| Key                                | Notes                                  |
-| ---------------------------------- | -------------------------------------- |
-| UNIQUE(nftContractId, nftId)       |                                        |
-| INDEX(owner, nftContractId, nftId) |                                        |
-| INDEX(updated)                     | Find old items that need to be updated |
-
-This table is updated by a cron job. By caching these values it allows our RSS feeds and web pages to load fast!
-
-## Queries
-
-Prepare data for `GET offers/0x23948739847239847.json`.
-
-```sql
-SELECT nftContracts.account
-     , nfts.nftId
-     , COALESCE(nfts.pretty, CONCAT(nftContracts.account, "/", nfts.nftId)
-     , nfts.imageUri
-     , offers.expiration
-     , offers.term
-     , saleContracts.account
-     , saleContracts.pretty
-     , offers.saleAmount
-     , returnContrats.account
-     , returnContracts.pretty
-     , offers.returnAmount
-  FROM offers
-  JOIN nftContracts
-    ON nftContracts.id = offers.nftContractId
-  JOIN valueContracts saleContracts
-    ON saleContracts.id = offers.saleContractId
-  JOIN valueContracts returnContracts
-    ON returnContracts.id = offers.returnContractId
-  JOIN nfts
-    ON nfts.id = offers.nftRowId
- WHERE nfts.owner = ? -- 0x23948739847customerAddress234879
- ORDER BY saleContracts.account = ? DESC -- 0x234987customer'sPreferredValueAccount239487
+```json
+{
+  "contract": LINK_TO_NFTCONTRACT,
+  "id": "3405742309574",
+  "pretty": "CryptoKitties #198881",
+  "imageUri": "https://storage.googleapis.com/ck-kitty-image/0x06012c8cf97bead5deae237070f9587f8e7a266d/198881.svg",
+  "owner": "0x2349374934holder23948723497"
+}
 ```
 
+### Constraints
+
+* (`contract`, `id`) must be unique
+
+### Indicies
+
+* It must be fast to look up all NFTs by owner

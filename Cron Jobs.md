@@ -45,3 +45,6 @@ for contract in interestingContracts
 database.query(statsLiquidityQuery) >> api.nfpawn.io/stats/liquidity.json
 ```
 
+## :runner: load-events (minutely)
+
+This loads events from the NFPawn contract and updates offers in the database to have correct:
